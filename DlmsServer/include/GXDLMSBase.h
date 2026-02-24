@@ -54,6 +54,10 @@ class CGXDLMSBase : public CGXDLMSSecureServer
 private:
     int m_ServerSocket;
     pthread_t m_ReceiverThread;
+    CGXDLMSAssociationLogicalName* m_ln;
+    CGXDLMSAssociationShortName* m_sn;
+    CGXDLMSTcpUdpSetup* m_wrapper;
+    CGXDLMSIecHdlcSetup* m_hdlc;
 public:
     GX_TRACE_LEVEL m_Trace;
     std::mutex m_mutex;
@@ -68,6 +72,10 @@ public:
     {
         m_ServerSocket = -1;
         m_ReceiverThread = -1;
+        m_ln = ln;
+        m_sn = NULL;
+        m_wrapper = NULL;
+        m_hdlc = hdlc;
         SetMaxReceivePDUSize(1024);
         CGXDLMSSecuritySetup* s = new CGXDLMSSecuritySetup();
         s->SetServerSystemTitle(GetCiphering()->GetSystemTitle());
@@ -84,6 +92,10 @@ public:
     {
         m_ServerSocket = -1;
         m_ReceiverThread = -1;
+        m_ln = ln;
+        m_sn = NULL;
+        m_wrapper = wrapper;
+        m_hdlc = NULL;
         SetMaxReceivePDUSize(1024);
     }
 
@@ -97,6 +109,10 @@ public:
     {
         m_ServerSocket = -1;
         m_ReceiverThread = -1;
+        m_ln = NULL;
+        m_sn = sn;
+        m_wrapper = NULL;
+        m_hdlc = hdlc;
         SetMaxReceivePDUSize(1024);
     }
 
@@ -110,6 +126,10 @@ public:
     {
         m_ServerSocket = -1;
         m_ReceiverThread = -1;
+        m_ln = NULL;
+        m_sn = sn;
+        m_wrapper = wrapper;
+        m_hdlc = NULL;
         SetMaxReceivePDUSize(1024);
     }
 

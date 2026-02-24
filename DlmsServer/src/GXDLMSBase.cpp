@@ -49,6 +49,10 @@ char IMAGEFILE[FILENAME_MAX];
 
 int imageSize;
 
+// Static firmware version string shared by all CGXDLMSBase objects
+static std::string FIRMWARE_VERSION = "Gurux FW 0.0.1";
+static std::string pendingFirmwareVersion;
+
 struct ClientData {
     SOCKET socket;
     CGXDLMSBase* server;
@@ -110,10 +114,20 @@ void CGXDLMSBase::RunAcceptLoop(CGXDLMSBase* server)
         {
             continue;
         }
-        // Use the main server for this client
+        // Create a new server instance for this client to avoid shared state issues
+        CGXDLMSAssociationLogicalName* ln = new CGXDLMSAssociationLogicalName();
+        CGXDLMSTcpUdpSetup* wrapper = new CGXDLMSTcpUdpSetup();
+        CGXDLMSBase* clientServer = new CGXDLMSBase(ln, wrapper);
+        clientServer->m_Trace = server->m_Trace;
+        clientServer->InitializeObjects(); // Add the objects to the new server
+        // Copy KEK and other settings if needed
+        CGXByteBuffer kek;
+        kek.AddString("1111111111111111");
+        clientServer->SetKek(kek);
+
         ClientData* data = new ClientData();
         data->socket = socket;
-        data->server = server;
+        data->server = clientServer;
         pthread_t thread;
         pthread_create(&thread, NULL, HandleClient, data);
         pthread_detach(thread);
@@ -212,6 +226,7 @@ void* HandleClient(void* arg)
     }
 
     close(socket);
+    delete data->server; // Clean up the per-client server instance
     delete data;
     return NULL;
 }
@@ -290,7 +305,7 @@ CGXDLMSData* AddLogicalDeviceName(CGXDLMSObjectCollection& items, unsigned long 
 void AddFirmwareVersion(CGXDLMSObjectCollection& items)
 {
     CGXDLMSVariant version;
-    version = "Gurux FW 0.0.1";
+    version = FIRMWARE_VERSION;
     CGXDLMSData* fw = new CGXDLMSData("1.0.0.2.0.255");
     fw->SetValue(version);
     items.push_back(fw);
@@ -827,6 +842,7 @@ void CGXDLMSBase::PreRead(std::vector<CGXDLMSValueEventArg*>& args)
         //Get attribute index.
         index = (*it)->GetIndex();
         pObj = (*it)->GetTarget();
+        pObj->GetLogicalName(ln);
         //Get target type.
         type = pObj->GetObjectType();
         if (type == DLMS_OBJECT_TYPE_PROFILE_GENERIC)
@@ -897,6 +913,14 @@ void CGXDLMSBase::PreRead(std::vector<CGXDLMSValueEventArg*>& args)
         {
             CGXDateTime tm = CGXDateTime::Now();
             ((CGXDLMSClock*)pObj)->SetTime(tm);
+            continue;
+        }
+        else if (type == DLMS_OBJECT_TYPE_DATA && ln == "1.0.0.2.0.255" && index == 2)
+        {
+            // Override firmware version with the current static value
+            CGXDLMSVariant fwValue;
+            fwValue = FIRMWARE_VERSION;
+            ((CGXDLMSData*)pObj)->SetValue(fwValue);
             continue;
         }
         else if (type == DLMS_OBJECT_TYPE_REGISTER_MONITOR)
@@ -981,12 +1005,13 @@ void HandleImageTransfer(CGXDLMSValueEventArg* e)
     if (e->GetIndex() == 1)
     {
         i->SetImageTransferStatus(DLMS_IMAGE_TRANSFER_STATUS_NOT_INITIATED);
-        if (e->GetParameters().Arr.size() != 2)
+        if (e->GetParameters().Arr.size() != 3)
         {
             e->SetError(DLMS_ERROR_CODE_UNMATCH_TYPE);
             return;
         }
         imageSize = e->GetParameters().Arr[1].ToInteger();
+        pendingFirmwareVersion = e->GetParameters().Arr[2].ToString();
         char* p = strrchr(IMAGEFILE, '\\');
         ++p;
         *p = '\0';
@@ -1086,6 +1111,9 @@ void HandleImageTransfer(CGXDLMSValueEventArg* e)
             printf("Image is activated.");
             i->SetImageTransferStatus(DLMS_IMAGE_TRANSFER_STATUS_ACTIVATION_SUCCESSFUL);
             imageActionStartTime = time(NULL);
+            // Update firmware version on successful activation
+            FIRMWARE_VERSION = pendingFirmwareVersion;
+            printf("Firmware version updated to: %s\n", FIRMWARE_VERSION.c_str());
         }
     }
 }

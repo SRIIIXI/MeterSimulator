@@ -1,18 +1,91 @@
 #include <string.h>
+#include <iostream>
+#include <string>
+#include "GXDLMSData.h"
 #include "Communication.h"
+#include <mosquitto.h>
+#include <unistd.h>
+
+static CGXCommunication* commptr = nullptr;
+static struct mosquitto *mosq = nullptr;
+
+void parse_obis(const char* obis_str, unsigned char ln[6])
+{
+    sscanf(obis_str, "%hhu.%hhu.%hhu.%hhu.%hhu.%hhu", &ln[0], &ln[1], &ln[2], &ln[3], &ln[4], &ln[5]);
+}
+
+void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg)
+{
+    //We assume that the payload is a command to update firmware. In real application, you should parse the message and handle different commands accordingly.
+    //So check for the valid communication pointer before processing the message.
+
+    if (commptr == nullptr)
+    {
+        printf("Communication not initialized.\n");
+        return;
+    }
+
+    // Firmware update
+    std::string fwId;
+    std::string image;
+    std::cout << "Enter firmware ID: ";
+    std::getline(std::cin, fwId);
+    std::cout << "Enter image binary: ";
+    std::getline(std::cin, image);
+    // Send firmware update
+    CGXDLMSData fwData("0.0.1.0.0.255");
+    CGXDLMSVariant fwValue;
+    fwValue = fwId + ";" + image;
+    int fwRet = commptr->Write(&fwData, 2, fwValue);
+    if (fwRet != 0)
+    {
+        printf("Firmware update failed (%d)\n", fwRet);
+    }
+
+    printf("Received message on topic %s: %s\n", msg->topic, (char*)msg->payload);
+}
 
 static void ShowHelp();
 static int StartClient(int argc, char* argv[]);
 
 int main(int argc, char* argv[])
 {
+    // Initialize MQTT
+    mosquitto_lib_init();
+    mosq = mosquitto_new(NULL, true, NULL);
+    if (!mosq)
+    {
+        printf("Error: Out of memory.\n");
+        return 1;
+    }
+    mosquitto_message_callback_set(mosq, on_message);
+    if (mosquitto_connect(mosq, "localhost", 1883, 60))
+    {
+        printf("Unable to connect to MQTT broker.\n");
+        mosquitto_destroy(mosq);
+        mosquitto_lib_cleanup();
+        return 1;
+    }
+    mosquitto_subscribe(mosq, NULL, "dlms/commands", 1);
+    mosquitto_loop_start(mosq);
+
     if (argc < 2)
     {
         ShowHelp();
+        mosquitto_loop_stop(mosq, true);
+        mosquitto_destroy(mosq);
+        mosquitto_lib_cleanup();
         return -1;
     }
 
-    return StartClient(argc, argv);
+    int ret = StartClient(argc, argv);
+
+    // Cleanup MQTT
+    mosquitto_loop_stop(mosq, true);
+    mosquitto_destroy(mosq);
+    mosquitto_lib_cleanup();
+
+    return ret;
 }
 
 static void ShowHelp()
@@ -21,7 +94,6 @@ static void ShowHelp()
     printf("GuruxDlmsSample -h [Meter IP Address] -p [Meter Port No] -c 16 -s 1 -r SN\n");
     printf(" -h \t host name or IP address.\n");
     printf(" -p \t port number or name (Example: 1000).\n");
-    printf(" -S [COM1:9600:8None1]\t serial port.\n");
     printf(" -a \t Authentication (None, Low, High, HighMd5, HighSha1, HighGmac, HighSha256).\n");
     printf(" -P \t Password for authentication.\n");
     printf(" -c \t Client address. (Default: 16)\n");
@@ -48,10 +120,6 @@ static void ShowHelp()
     printf("Example:\n");
     printf("Read LG device using TCP/IP connection.\n");
     printf("GuruxDlmsSample -r SN -c 16 -s 1 -h [Meter IP Address] -p [Meter Port No]\n");
-    printf("Read LG device using serial port connection.\n");
-    printf("GuruxDlmsSample -r SN -c 16 -s 1 -sp COM1 -i\n");
-    printf("Read Indian device using serial port connection.\n");
-    printf("GuruxDlmsSample -S COM1:9600:8None1 -c 16 -s 1 -a Low -P [password]\n");
 }
 
 static int StartClient(int argc, char* argv[])
@@ -150,112 +218,70 @@ static int StartClient(int argc, char* argv[])
     }
 
     CGXCommunication comm(&cl, 5000, trace, invocationCounter);
+    commptr = &comm;
 
-    if (port != 0 || address != NULL)
+    // Initialize connection
+    ret = comm.InitializeConnection();
+    if (ret != 0)
     {
-        if (port == 0)
-        {
-            printf("Missing mandatory port option.\n");
-            return 1;
-        }
-        if (address == NULL)
-        {
-            printf("Missing mandatory host option.\n");
-            return 1;
-        }
-        if ((ret = comm.Connect(address, port)) != 0)
-        {
-            printf("Connect failed %s.\n", CGXDLMSConverter::GetErrorMessage(ret));
-            return 1;
-        }
-    }
-    else
-    {
-        printf("Missing mandatory connection information for TCP/IP or serial port connection.\n");
-        printf("-----------------------------------------------------------------------------.\n");
-        ShowHelp();
-        return 1;
+        printf("Failed to initialize connection: %d\n", ret);
+        return ret;
     }
 
-    if (readObjects != NULL)
+    // DCU polling loop for 5 registers
+    const char* obis_codes[] = {
+        "1.0.1.8.0.255",  // Active energy import total
+        "1.0.1.7.0.255",  // Active power total
+        "1.0.1.8.1.255",  // Active energy import tariff 1
+        "1.0.2.8.1.255",  // Active energy export tariff 1
+        "1.0.14.7.0.255"  // Frequency
+    };
+
+    const char* attribute_names[] = {
+        "Active Energy Import Total",
+        "Active Power Total",
+        "Active Energy Import Tariff 1",
+        "Active Energy Export Tariff 1",
+        "Frequency"
+    };
+
+    const char* uom[] = {
+        "kWh",
+        "kW",
+        "kWh",
+        "kWh",
+        "Hz"
+    };
+
+    while (true)
     {
-        bool read = false;
-        if (outputFile != NULL)
+        for (int i = 0; i < 5; ++i)
         {
-            if ((ret = cl.GetObjects().Load(outputFile)) == 0)
+            unsigned char ln[6];
+            parse_obis(obis_codes[i], ln);
+            CGXDLMSObject* obj = cl.GetObjects().FindByLN(DLMS_OBJECT_TYPE_ALL, ln);
+            if (obj != NULL)
             {
-                ret = 0;
-                read = true;
-            }
-        }
-
-        ret = comm.InitializeConnection();
-
-        if (ret == 0 && !read)
-        {
-            ret = comm.GetAssociationView();
-        }
-
-        printf("\n-----------------------------------------------------------------------------\n");
-        printf("Reading %s\n", readObjects);
-        printf("-----------------------------------------------------------------------------\n");
-
-        if (ret == 0)
-        {
-            std::string str;
-            std::string value;
-            char buff[200];
-            p = readObjects;
-            do
-            {
-                if (p != readObjects)
+                std::string value;
+                if (comm.Read(obj, 2, value) == DLMS_ERROR_CODE_OK)
                 {
-                    ++p;
-                }
-
-                str.clear();
-                p2 = strchr(p, ':');
-                ++p2;
-
-                sscanf(p2, "%d", &index);
-
-                str.append(p, p2 - p);
-                CGXDLMSObject* obj = cl.GetObjects().FindByLN(DLMS_OBJECT_TYPE_ALL, str);
-                if (obj != NULL)
-                {
-                    value.clear();
-                    if ((ret = comm.Read(obj, index, value)) != DLMS_ERROR_CODE_OK)
-                    {
-                        sprintf(buff, "Error! Index: %d read failed: %s\n", index, CGXDLMSConverter::GetErrorMessage(ret));
-                        comm.WriteValue(GX_TRACE_LEVEL_ERROR, buff);
-                        //Continue reading.
-                    }
-                    else
-                    {
-                        sprintf(buff, "Index: %d Value: ", index);
-                        comm.WriteValue(trace, buff);
-                        comm.WriteValue(trace, value.c_str());
-                        comm.WriteValue(trace, "\n");
-                    }
+                    // Publish to MQTT with attribute name and UOM
+                    std::string topic = "dlms/data/" + std::string(obis_codes[i]);
+                    std::string payload = std::string(attribute_names[i]) + "," + value + "," + std::string(uom[i]);
+                    mosquitto_publish(mosq, NULL, topic.c_str(), payload.length(), payload.c_str(), 0, false);
+                    printf("Published %s: %s\n", obis_codes[i], payload.c_str());
                 }
                 else
                 {
-                    sprintf(buff, "Unknown object: %s", str.c_str());
-                    str = buff;
-                    comm.WriteValue(GX_TRACE_LEVEL_ERROR, str);
+                    printf("Failed to read %s\n", obis_codes[i]);
                 }
-            } while ((p = strchr(p, ',')) != NULL);
-
-            comm.Close();
-            if (outputFile != NULL && ret == 0)
+            }
+            else
             {
-                ret = cl.GetObjects().Save(outputFile);
+                printf("Object not found: %s\n", obis_codes[i]);
             }
         }
-    }
-    else
-    {
-        ret = comm.ReadAll(outputFile);
+        sleep(10);  // Poll every 10 seconds
     }
 
     comm.Close();

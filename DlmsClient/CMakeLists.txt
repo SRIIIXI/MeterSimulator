@@ -6,6 +6,11 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+find_library(MOSQUITTO_LIBRARY mosquitto)
+if(NOT MOSQUITTO_LIBRARY)
+    message(FATAL_ERROR "libmosquitto not found")
+endif()
+
 if(WIN32)
     link_libraries(ws2_32 wsock32 userenv)
 endif(WIN32)
@@ -336,4 +341,6 @@ add_executable(DlmsClient ${SOURCE} ${HEADERS}
 ./src/DlmsClient.cpp 
 ./src/Communication.cpp 
 )
+
+target_link_libraries(DlmsClient ${MOSQUITTO_LIBRARY})
 
