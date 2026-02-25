@@ -96,19 +96,12 @@ int CGXDLMSBase::StartServer(int port)
         return -1;
     }
 
-    RunAcceptLoop(this);
-
-    return ret;
-}
-
-void CGXDLMSBase::RunAcceptLoop(CGXDLMSBase* server)
-{
-    while (server->IsConnected())
+    while (IsConnected())
     {
         struct sockaddr_in client;
         memset(&client, 0, sizeof(client));
         socklen_t socklen = sizeof(client);
-        SOCKET socket = accept(server->GetSocket(), (struct sockaddr*)&client, &socklen);
+        SOCKET socket = accept(GetSocket(), (struct sockaddr*)&client, &socklen);
         
         if (socket == INVALID_SOCKET) 
         {
@@ -118,7 +111,7 @@ void CGXDLMSBase::RunAcceptLoop(CGXDLMSBase* server)
         CGXDLMSAssociationLogicalName* ln = new CGXDLMSAssociationLogicalName();
         CGXDLMSTcpUdpSetup* wrapper = new CGXDLMSTcpUdpSetup();
         CGXDLMSBase* clientServer = new CGXDLMSBase(ln, wrapper);
-        clientServer->m_Trace = server->m_Trace;
+        clientServer->m_Trace = m_Trace;
         clientServer->InitializeObjects(); // Add the objects to the new server
         // Copy KEK and other settings if needed
         CGXByteBuffer kek;
@@ -132,6 +125,7 @@ void CGXDLMSBase::RunAcceptLoop(CGXDLMSBase* server)
         pthread_create(&thread, NULL, HandleClient, data);
         pthread_detach(thread);
     }
+    return ret;
 }
 
 void* HandleClient(void* arg) 

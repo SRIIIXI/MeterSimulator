@@ -43,6 +43,8 @@ public:
     void shutdown() override
     {
         writeLogNormal("Received shutdown signal. Closing application.");
+        printf("\nReceived shutdown signal. Closing application.\r\n");
+        fflush(stdout);
         exit(0);
     }
 
@@ -92,43 +94,7 @@ int main(int argc, char* argv[])
     config.setFileName("DlmsServer");
     config.loadConfiguration();
 
-    InitDlms();
-
-    while(true)
-    {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
-
-    return 0;
-}
-
-std::string BytesToHex(unsigned char* pBytes, int count, char addSpaces)
-{
-    const char hexArray[] = { '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F' };
-    std::string hexChars(addSpaces ? 3 * count : 2 * count, 0);
-    int tmp;
-    int index = 0;
-    for (int pos = 0; pos != count; ++pos)
-    {
-        tmp = pBytes[pos] & 0xFF;
-        hexChars[index++] = hexArray[tmp >> 4];
-        hexChars[index++] = hexArray[tmp & 0x0F];
-        if (addSpaces)
-        {
-            hexChars[index++] = ' ';
-        }
-    }
-    //Remove last separator.
-    if (addSpaces && count != 0)
-    {
-        hexChars.resize(hexChars.size() - 1);
-    }
-    return hexChars;
-}
-
-int InitDlms()
-{
-    std::filesystem::path datapath;
+   std::filesystem::path datapath;
 
     if (geteuid() == 0)
     {
@@ -174,8 +140,35 @@ int InitDlms()
     printf("Authentication key: %s\r\n", LNServer->GetCiphering()->GetAuthenticationKey().ToString().c_str());
     printf("Block cipher key: %s\r\n", LNServer->GetCiphering()->GetBlockCipherKey().ToString().c_str());
     printf("Master key (KEK) title: %s\r\n", LNServer->GetKek().ToString().c_str());
-    
+    fflush(stdout);
 
     printf("Press Ctrl + C to close application.\r\n");
+    LNServer->StartServer(4059);
+    
     return 0;
 }
+
+std::string BytesToHex(unsigned char* pBytes, int count, char addSpaces)
+{
+    const char hexArray[] = { '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F' };
+    std::string hexChars(addSpaces ? 3 * count : 2 * count, 0);
+    int tmp;
+    int index = 0;
+    for (int pos = 0; pos != count; ++pos)
+    {
+        tmp = pBytes[pos] & 0xFF;
+        hexChars[index++] = hexArray[tmp >> 4];
+        hexChars[index++] = hexArray[tmp & 0x0F];
+        if (addSpaces)
+        {
+            hexChars[index++] = ' ';
+        }
+    }
+    //Remove last separator.
+    if (addSpaces && count != 0)
+    {
+        hexChars.resize(hexChars.size() - 1);
+    }
+    return hexChars;
+}
+
