@@ -13,7 +13,7 @@ endif(WIN32)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(PROJECT_SOURCE_DIR ../Dlms/src)
 set(PROJECT_HEADER_DIR ../Dlms/include)
-include_directories(${PROJECT_HEADER_DIR} ./include ../Dlms/include)
+include_directories(${PROJECT_HEADER_DIR} ./include ../Dlms/include ../Common/include)
 
 set(SOURCE
 ${SOURCE}
@@ -329,6 +329,12 @@ ${PROJECT_HEADER_DIR}/TranslatorTags.h
 )
 
 add_executable(DlmsServer ${SOURCE} ${HEADERS}
+    ../Common/include/Logger.h
+    ../Common/src/Logger.cpp
+    ../Common/include/Configuration.h
+    ../Common/src/Configuration.cpp
+    ../Common/include/SignalHandler.h
+    ../Common/src/SignalHandler.cpp
     ./include/DlmsServer.h
     ./include/GXDLMSBase.h
     ./include/GXDLMSServerLN.h

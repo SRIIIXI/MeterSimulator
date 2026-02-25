@@ -6,6 +6,57 @@
 #include <mosquitto.h>
 #include <unistd.h>
 
+#include "Logger.h"
+#include "SignalHandler.h"
+#include "Configuration.h"
+
+
+// Signalhandler callback client.
+class SignalHandlerClient : public SignalCallback
+{
+public:
+    void suspend() override
+    {
+        writeLogNormal("Received suspend signal.");
+    }
+
+    void resume() override
+    {
+        writeLogNormal("Received resume signal.");
+    }
+
+    void shutdown() override
+    {
+        writeLogNormal("Received shutdown signal. Closing application.");
+        exit(0);
+    }
+
+    void alarm() override
+    {
+        writeLogNormal("Received alarm signal.");
+    }
+
+    void reset() override
+    {
+        writeLogNormal("Received reset signal.");
+    }
+
+    void childExit() override
+    {
+        writeLogNormal("Received child exit signal.");
+    }
+
+    void userdefined1() override
+    {
+        writeLogNormal("Received user defined 1 signal.");
+    }
+
+    void userdefined2() override
+    {
+        writeLogNormal("Received user defined 2 signal.");
+    }
+};
+
 static CGXCommunication* commptr = nullptr;
 static struct mosquitto *mosq = nullptr;
 
@@ -50,6 +101,23 @@ static int StartClient(int argc, char* argv[]);
 
 int main(int argc, char* argv[])
 {
+    SignalHandlerClient client;
+
+    SignalHandler sgnHandler;
+    sgnHandler.registerCallbackClient(&client);
+    sgnHandler.registerSignalHandlers();
+
+    Logger::GetInstance()->setModuleName(argv[0]);
+    Logger::GetInstance()->setLogDirectory("./logs");   
+    Logger::GetInstance()->setLogFileSize(10 * 1024 * 1024); //10 MB
+    Logger::GetInstance()->startLogging(FileAppend);
+
+    writeLogNormal("Starting DLMS client application.");
+
+    //Now will create the configuration objects. It loads from default loaction. "/etc/" for root and "home/%USER%/.config" for non root users.
+    Configuration config;
+    config.loadConfiguration();
+
     // Initialize MQTT
     mosquitto_lib_init();
     mosq = mosquitto_new(NULL, true, NULL);

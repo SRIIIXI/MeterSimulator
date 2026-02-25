@@ -6,6 +6,10 @@
 #include "GXDLMSAssociationLogicalName.h"
 #include "GXDLMSAssociationShortName.h"
 
+#include "Logger.h"
+#include "SignalHandler.h"
+#include "Configuration.h"
+
 #include <malloc.h>
 
 #include <algorithm>
@@ -21,8 +25,71 @@
 
 CGXDLMSServerLN* LNServer = nullptr;
 
+// Signalhandler callback client.
+class SignalHandlerClient : public SignalCallback
+{
+public:
+    void suspend() override
+    {
+        writeLogNormal("Received suspend signal.");
+    }
+
+    void resume() override
+    {
+        writeLogNormal("Received resume signal.");
+    }
+
+    void shutdown() override
+    {
+        writeLogNormal("Received shutdown signal. Closing application.");
+        exit(0);
+    }
+
+    void alarm() override
+    {
+        writeLogNormal("Received alarm signal.");
+    }
+
+    void reset() override
+    {
+        writeLogNormal("Received reset signal.");
+    }
+
+    void childExit() override
+    {
+        writeLogNormal("Received child exit signal.");
+    }
+
+    void userdefined1() override
+    {
+        writeLogNormal("Received user defined 1 signal.");
+    }
+
+    void userdefined2() override
+    {
+        writeLogNormal("Received user defined 2 signal.");
+    }
+};
+
 int main(int argc, char* argv[])
 {
+    SignalHandlerClient client;
+
+    SignalHandler sgnHandler;
+    sgnHandler.registerCallbackClient(&client);
+    sgnHandler.registerSignalHandlers();
+
+    Logger::GetInstance()->setModuleName(argv[0]);
+    Logger::GetInstance()->setLogDirectory("./logs");   
+    Logger::GetInstance()->setLogFileSize(10 * 1024 * 1024); //10 MB
+    Logger::GetInstance()->startLogging(FileAppend);
+
+    writeLogNormal("Starting DLMS server application.");
+
+    //Now will create the configuration objects. It loads from default loaction. "/etc/" for root and "home/%USER%/.config" for non root users.
+    Configuration config;
+    config.loadConfiguration();
+
     InitDlms(argv[1]);
     return 0;
 }
