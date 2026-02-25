@@ -4,7 +4,7 @@
 #include "GXEnums.h"
 #include <string>
 
-int InitDlms(const char* path);
+int InitDlms();
 std::string BytesToHex(unsigned char* pBytes, int count, char addSpaces);
 
 #endif

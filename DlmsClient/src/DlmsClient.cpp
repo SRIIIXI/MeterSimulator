@@ -67,12 +67,58 @@ void parse_obis(const char* obis_str, unsigned char ln[6])
 
 void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg)
 {
-    //We assume that the payload is a command to update firmware. In real application, you should parse the message and handle different commands accordingly.
+    //We assume that the payload is a command to update firmware. 
+    // In real application, you should parse the message and handle different commands accordingly.
     //So check for the valid communication pointer before processing the message.
+
+    printf("Message received.\n");
+
+    //The topic format is /idms/{command}/{device_id}/, so we can parse the command and device_id from the topic if needed.
+    //IDMS stands for "IoT Device Management System". The command can be "update_firmware", "restart_device", etc. The device_id can be used to identify which device the command is for.
+
+        // Extract payload into string
+    std::string payload(static_cast<const char*>(msg->payload), msg->payloadlen);
+
+    // Parse topic: /idms/{command}/{deviceid}
+    std::string topic(msg->topic);
+    std::string command, deviceid;
+
+    // Split by '/'
+    std::vector<std::string> parts;
+    std::istringstream ss(topic);
+    std::string token;
+
+    while (std::getline(ss, token, '/'))
+    {
+        if (!token.empty())
+            parts.push_back(token);
+    }
+
+    // Expected: parts[0]="idms", parts[1]=command, parts[2]=deviceid
+    if (parts.size() >= 3 && parts[0] == "idms")
+    {
+        command  = parts[1];
+        deviceid = parts[2];
+    }
+    else
+    {
+        // Malformed topic
+        return;
+    }
+
+    // command, deviceid and payload are ready to use. For example, if command is "update_firmware", we can call a function to handle firmware update for the device with given deviceid and payload.
+
+    // Print the command and device ID for debugging
+    printf("Received command: %s for device: %s with payload: %s\n", command.c_str(), deviceid.c_str(), payload.c_str());
+
+    //For testing only, we will send back a dummy response to the IoT server to confirm that we received the command and processed it. In real application, you should implement the actual logic to handle the command and send appropriate response.
+    std::string response_topic = "/idms/" + command + "/" + deviceid + "/response";
+    std::string response_payload = "OK"; // In real application, this can be the result of processing the command.
+    mosquitto_publish(mosq, NULL, response_topic.c_str(), response_payload.length(), response_payload.c_str(), 1, false);
 
     if (commptr == nullptr)
     {
-        printf("Communication not initialized.\n");
+        printf("Meter connection is not initialized.\n");
         return;
     }
 
@@ -97,10 +143,12 @@ void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_messag
 }
 
 static void ShowHelp();
-static int StartClient(int argc, char* argv[]);
+static int StartClient(/*int argc, char* argv[]*/);
 
 int main(int argc, char* argv[])
 {
+    int ret = 0;
+
     SignalHandlerClient client;
 
     SignalHandler sgnHandler;
@@ -116,37 +164,52 @@ int main(int argc, char* argv[])
 
     //Now will create the configuration objects. It loads from default loaction. "/etc/" for root and "home/%USER%/.config" for non root users.
     Configuration config;
+    config.setFileName("DlmsClient");
     config.loadConfiguration();
+
+    std::string mqtthost = config.getValue("MQTT", "Host", "127.0.0.1");
+    std::string mqttport = config.getValue("MQTT", "Port", "1883");
+    std::string mqttuser = config.getValue("MQTT", "Username", "");
+    std::string mqttpassword = config.getValue("MQTT", "Password", "");
+    std::string mqtttClientId = config.getValue("MQTT", "ClientId", "dlms/commands");
 
     // Initialize MQTT
     mosquitto_lib_init();
-    mosq = mosquitto_new(NULL, true, NULL);
+    mosq = mosquitto_new(mqtttClientId.c_str(), true, NULL);
     if (!mosq)
     {
         printf("Error: Out of memory.\n");
         return 1;
     }
     mosquitto_message_callback_set(mosq, on_message);
-    if (mosquitto_connect(mosq, "localhost", 1883, 60))
+    if (mosquitto_connect(mosq, mqtthost.c_str(), std::stoi(mqttport), 60))
     {
         printf("Unable to connect to MQTT broker.\n");
         mosquitto_destroy(mosq);
         mosquitto_lib_cleanup();
         return 1;
     }
-    mosquitto_subscribe(mosq, NULL, "dlms/commands", 1);
+
+    printf("Connected to MQTT broker.\n");
+
+    mosquitto_subscribe(mosq, NULL, "/idms/+/+/", 1);
     mosquitto_loop_start(mosq);
 
-    if (argc < 2)
-    {
-        ShowHelp();
-        mosquitto_loop_stop(mosq, true);
-        mosquitto_destroy(mosq);
-        mosquitto_lib_cleanup();
-        return -1;
-    }
+    // if (argc < 2)
+    // {
+    //     ShowHelp();
+    //     mosquitto_loop_stop(mosq, true);
+    //     mosquitto_destroy(mosq);
+    //     mosquitto_lib_cleanup();
+    //     return -1;
+    // }
 
-    int ret = StartClient(argc, argv);
+    //ret = StartClient(argc, argv);
+
+    while(true)
+    {
+        sleep(5);
+    }
 
     // Cleanup MQTT
     mosquitto_loop_stop(mosq, true);
@@ -190,7 +253,7 @@ static void ShowHelp()
     printf("GuruxDlmsSample -r SN -c 16 -s 1 -h [Meter IP Address] -p [Meter Port No]\n");
 }
 
-static int StartClient(int argc, char* argv[])
+static int StartClient(/*int argc, char* argv[]*/)
 {
     int ret;
     //Remove trace file if exists.
@@ -287,6 +350,12 @@ static int StartClient(int argc, char* argv[])
 
     CGXCommunication comm(&cl, 5000, trace, invocationCounter);
     commptr = &comm;
+
+    if(comm.Connect(address, port) != DLMS_ERROR_CODE_OK)
+    {
+        printf("Failed to connect to meter at address %s port %d\n", address, port);
+        return -1;
+    }
 
     // Initialize connection
     ret = comm.InitializeConnection();

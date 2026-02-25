@@ -1,8 +1,7 @@
 #include "Configuration.h"
-#include <stdio.h>
 
+#include <iostream>
 #include <unistd.h>
-#include <string.h>
 
 Configuration::Configuration()
 {
@@ -66,16 +65,20 @@ bool Configuration::loadConfiguration()
     if (geteuid() == 0)
     {
         // Running as root
-        configPath = std::filesystem::path("/etc") / _ConfigFileName;
+        configPath = std::filesystem::path("/etc") / std::string(_ConfigFileName + ".conf");
     }
     else
     {
         // Running as normal user
         const char* home = getenv("HOME");
         if (!home)
+        {
             return false;
-        configPath = std::filesystem::path(home) / ".config" / _ConfigFileName;
+        }
+        configPath = std::filesystem::path(home) / ".config" / std::string(_ConfigFileName + ".conf");
     }
+
+    std::cout << configPath << std::endl;
 
     return loadConfiguration(configPath.string());
 }

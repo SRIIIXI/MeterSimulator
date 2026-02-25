@@ -22,6 +22,7 @@
 #include <iostream>
 #include <chrono>
 #include <mutex>
+#include <unistd.h>
 
 CGXDLMSServerLN* LNServer = nullptr;
 
@@ -88,9 +89,16 @@ int main(int argc, char* argv[])
 
     //Now will create the configuration objects. It loads from default loaction. "/etc/" for root and "home/%USER%/.config" for non root users.
     Configuration config;
+    config.setFileName("DlmsServer");
     config.loadConfiguration();
 
-    InitDlms(argv[1]);
+    InitDlms();
+
+    while(true)
+    {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
     return 0;
 }
 
@@ -118,14 +126,32 @@ std::string BytesToHex(unsigned char* pBytes, int count, char addSpaces)
     return hexChars;
 }
 
-int InitDlms(const char* path)
+int InitDlms()
 {
-    strncpy(DATAFILE, path, sizeof(DATAFILE));
-    char* p = strrchr(DATAFILE, '\\');
+    std::filesystem::path datapath;
+
+    if (geteuid() == 0)
+    {
+        // Running as root
+        datapath = std::filesystem::path("/usr/share/DlmsServer");
+    }
+    else
+    {
+        // Running as normal user
+        const char* home = getenv("HOME");
+        if (!home)
+        {
+            return -1;
+        }
+        datapath = std::filesystem::path(home) / ".local" / std::string("DlmsServer");
+    }
+
+    strncpy(DATAFILE, datapath.c_str(), sizeof(DATAFILE));
+    char* p = strrchr(DATAFILE, '/');
     *p = '\0';
     strcpy(IMAGEFILE, DATAFILE);
-    strcat(IMAGEFILE, "\\empty.bin");
-    strcat(DATAFILE, "\\data.csv");
+    strcat(IMAGEFILE, "/empty.bin");
+    strcat(DATAFILE, "/data.csv");
 
     int ret = 0;
     
@@ -142,6 +168,13 @@ int InitDlms(const char* path)
     printf("Block cipher key: %s\r\n", LNServer->GetCiphering()->GetBlockCipherKey().ToHexString().c_str());
     printf("Master key (KEK) title: %s\r\n", LNServer->GetKek().ToHexString().c_str());
     printf("-------------------------------------------------------\n");
+
+    // Print all the above in ASCII as well for easier copy pasting.
+    printf("System Title: %s\r\n", LNServer->GetCiphering()->GetSystemTitle().ToString().c_str());
+    printf("Authentication key: %s\r\n", LNServer->GetCiphering()->GetAuthenticationKey().ToString().c_str());
+    printf("Block cipher key: %s\r\n", LNServer->GetCiphering()->GetBlockCipherKey().ToString().c_str());
+    printf("Master key (KEK) title: %s\r\n", LNServer->GetKek().ToString().c_str());
+    
 
     printf("Press Ctrl + C to close application.\r\n");
     return 0;
